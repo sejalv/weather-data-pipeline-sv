@@ -6,7 +6,7 @@
 
 ## 🎯 Project Overview
 
-This project implements a weather data pipeline that ingests German weather data from the DWD (German Weather Service) via BrightSky API, transforms it into ML-ready format at postal code granularity, and provides comprehensive data quality monitoring.
+This project implements a weather data pipeline that ingests German weather data from the DWD (German Weather Service) via BrightSky API, transforms it into ML-ready format at postal code granularity.
 
 ### Key Features
 - ✅ **Medallion Architecture**: Bronze (Raw) → Silver (Cleaned) → Gold (ML-Ready)
