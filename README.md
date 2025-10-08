@@ -394,7 +394,6 @@ mae = mean(abs(forecast - actual))
 update_accuracy_score(1.0 - mae/10.0)
 ```
 
-- Adavanced spatial interpolation
 - ML feature engineering
 - Forecast Accuracy tracking
 
