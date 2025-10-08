@@ -28,12 +28,12 @@ This project implements a weather data pipeline that ingests German weather data
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    BrightSky API (DWD Data)                  │
+│                    BrightSky API (DWD Data)                 │
 └──────────────────────┬──────────────────────────────────────┘
                        │
                        ▼ Ingestion (Every 6h)
 ┌─────────────────────────────────────────────────────────────┐
-│                  BRONZE LAYER (Raw)                          │
+│                  BRONZE LAYER (Raw)                         │
 │  • raw_weather_observations (station-level)                 │
 │  • raw_weather_forecasts (station-level)                    │
 │  • weather_stations (metadata)                              │
@@ -42,7 +42,7 @@ This project implements a weather data pipeline that ingests German weather data
                        │
                        ▼ Transformation (Every 1h)
 ┌─────────────────────────────────────────────────────────────┐
-│                  SILVER LAYER (Staging)                      │
+│                  SILVER LAYER (Staging)                     │
 │  • stg_observations (validated)                             │
 │  • stg_forecasts (validated)                                │
 │  Data Quality Steps:                                        │
@@ -53,7 +53,7 @@ This project implements a weather data pipeline that ingests German weather data
                        │
                        ▼ Aggregation (IDW)
 ┌─────────────────────────────────────────────────────────────┐
-│                  GOLD LAYER (ML-Ready)                       │
+│                  GOLD LAYER (ML-Ready)                      │
 │  • analytics_weather_by_postal_code                         │
 │    - Postal code level (269 codes)                          │
 │    - Hourly resolution                                      │
