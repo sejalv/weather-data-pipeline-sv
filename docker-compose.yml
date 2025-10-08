@@ -1,0 +1,174 @@
+services:
+  # Initialize directories and permissions (minimal setup)
+  init-dirs:
+    image: alpine:latest
+    container_name: weather_init_dirs
+    command: >
+      sh -c "
+        echo 'Creating minimal required directories...' &&
+        mkdir -p /shared/config &&
+        echo 'Directory initialization complete!'
+      "
+    volumes:
+      - ./config:/shared/config
+    networks:
+      - weather-network
+
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: weather_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: weather_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weather_db"]  # test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - init-dirs
+    networks:
+      - weather-network
+    
+  # One-time initialization container for postal codes and station discovery
+  init-data:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weather-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/weather_db
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./scripts:/opt/airflow/scripts
+      - ./src:/opt/airflow/src
+    command: python /opt/airflow/scripts/load_postal_codes_berlin.py
+    networks:
+      - weather-network
+    restart: "no"  # Run once and exit
+  
+  airflow-init:
+    build: .
+    container_name: weather_airflow_init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres/weather_db
+      AIRFLOW__CORE__FERNET_KEY: 'zP3K7xMw9YvB2nQr5tVuWxZa1cDfEgHj4kLmNo6pRsT='
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: weather_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql
+      - ./config:/opt/airflow/config
+      - ./tests:/opt/airflow/tests
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@enpal.com --password admin || true &&
+      airflow connections add weather_db --conn-type postgres --conn-host postgres --conn-schema weather_db --conn-login postgres --conn-password postgres --conn-port 5432 || true
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - weather-network
+
+  airflow-webserver:
+    build: .
+    container_name: weather_airflow_webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres/weather_db
+      AIRFLOW__CORE__FERNET_KEY: 'zP3K7xMw9YvB2nQr5tVuWxZa1cDfEgHj4kLmNo6pRsT='
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'enpal_weather_pipeline_secret'
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      AIRFLOW__WEBSERVER__CSRF_ENABLED: 'false'
+      AIRFLOW__WEBSERVER__CONFIG_FILE: '/opt/airflow/config/airflow/webserver_config.py'
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: weather_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql
+      - ./config:/opt/airflow/config
+      - ./tests:/opt/airflow/tests
+    ports:
+      - "8080:8080"
+    command: airflow webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks:
+      - weather-network
+    restart: always
+
+  airflow-scheduler:
+    build: .
+    container_name: weather_airflow_scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres/weather_db
+      AIRFLOW__CORE__FERNET_KEY: 'zP3K7xMw9YvB2nQr5tVuWxZa1cDfEgHj4kLmNo6pRsT='
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: weather_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql
+      - ./config:/opt/airflow/config
+    command: airflow scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks:
+      - weather-network
+    restart: always
+
+volumes:
+  postgres_data:
+
+networks:
+  weather-network:
+    # driver: bridge
